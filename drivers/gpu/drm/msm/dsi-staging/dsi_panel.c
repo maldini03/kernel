@@ -48,6 +48,35 @@
 #define DEFAULT_PANEL_PREFILL_LINES	25
 #define TICKS_IN_MICRO_SECOND		1000000
 
+struct bda {
+    u32 brightness;
+    u32 dim_alpha;
+};
+
+struct bda fod_dim_lut[] = {
+	{0,	0xFF},
+	{4,	0xEB},
+	{8,	0xEA},
+	{12,	0xE9},
+	{13,	0xE8},
+	{20,	0xE5},
+	{24,	0xE3},
+	{30,	0xE0},
+	{68,	0xD0},
+	{133,	0xC0},
+	{218,	0xB0},
+	{328,	0xA0},
+	{486,	0x90},
+	{642,	0x80},
+	{832,	0x70},
+	{1043,	0x60},
+	{1267,	0x50},
+	{1500,	0x40},
+	{1770,	0x30},
+	{2000,	0x24},
+	{2047,	0x21},
+};
+
 enum dsi_dsc_ratio_type {
 	DSC_8BPC_8BPP,
 	DSC_10BPC_8BPP,
@@ -933,6 +962,37 @@ error:
 	return rc;
 }
 
+static u32 dsi_panel_get_backlight(struct dsi_panel *panel)
+{
+	return panel->bl_config.bl_level;
+}
+
+static u32 interpolate(uint32_t x, uint32_t xa, uint32_t xb, uint32_t ya, uint32_t yb)
+{
+	return ya - (ya - yb) * (x - xa) / (xb - xa);
+}
+
+u32 dsi_panel_get_fod_dim_alpha(struct dsi_panel *panel)
+{
+	u32 brightness = dsi_panel_get_backlight(panel);
+	int len = ARRAY_SIZE(fod_dim_lut);
+	int i;
+
+	for (i = 0; i < len; i++)
+		if (fod_dim_lut[i].brightness >= brightness)
+			break;
+
+	if (i == 0)
+		return fod_dim_lut[i].dim_alpha;
+
+	if (i == len)
+		return fod_dim_lut[i - 1].dim_alpha;
+
+	return interpolate(brightness,
+			fod_dim_lut[i].brightness, fod_dim_lut[i - 1].brightness,
+			fod_dim_lut[i].dim_alpha, fod_dim_lut[i - 1].dim_alpha);
+}
+
 int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 {
 	int rc = 0;
@@ -941,7 +1001,6 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 	if (panel->host_config.ext_bridge_num)
 		return 0;
 
-	pr_debug("backlight type:%d lvl:%d\n", bl->type, bl_lvl);
 	switch (bl->type) {
 	case DSI_BACKLIGHT_WLED:
 		rc = backlight_device_set_brightness(bl->raw_bd, bl_lvl);
